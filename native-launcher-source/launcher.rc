@@ -1,0 +1,37 @@
+// UTF-8 resources for Japanese version metadata.
+#pragma code_page(65001)
+#include <windows.h>
+
+#define IDI_APP 101
+
+IDI_APP ICON "app.ico"
+1 RT_MANIFEST "launcher.manifest"
+
+1 VERSIONINFO
+ FILEVERSION 1,2,1,0
+ PRODUCTVERSION 1,2,1,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+ FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "041104B0"
+        BEGIN
+            VALUE "CompanyName", "ネコシステム社\0"
+            VALUE "FileDescription", "ネコシステム社 ノートPC CPUファンチェッカー\0"
+            VALUE "FileVersion", "1.2.1\0"
+            VALUE "InternalName", "mknkLaptopFanChecker\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 ネコシステム社\0"
+            VALUE "OriginalFilename", "mknkLaptopFanChecker.exe\0"
+            VALUE "ProductName", "ネコシステム社 ノートPC CPUファンチェッカー\0"
+            VALUE "ProductVersion", "1.2.1\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0411, 1200
+    END
+END
