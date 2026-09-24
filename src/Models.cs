@@ -12,7 +12,8 @@ namespace Mknk.LaptopFanChecker
         Cooldown,
         Complete,
         Aborted,
-        SafetyStop
+        SafetyStop,
+        SensorLost
     }
 
     public enum VerdictLevel
@@ -29,6 +30,9 @@ namespace Mknk.LaptopFanChecker
         public string Model { get; set; }
         public string CpuName { get; set; }
         public double? CpuBaseSpeedMHz { get; set; }
+        public int? CpuSocketCount { get; set; }
+        public int? CpuCoreCount { get; set; }
+        public int? CpuLogicalProcessorCount { get; set; }
         public string OperatingSystem { get; set; }
 
         public SystemProfile()
@@ -43,6 +47,24 @@ namespace Mknk.LaptopFanChecker
         public string DisplayName
         {
             get { return (Manufacturer + " " + Model).Trim(); }
+        }
+
+        public string CpuSocketCountText { get { return FormatCpuCount(CpuSocketCount); } }
+        public string CpuCoreCountText { get { return FormatCpuCount(CpuCoreCount); } }
+        public string CpuLogicalProcessorCountText { get { return FormatCpuCount(CpuLogicalProcessorCount); } }
+
+        public string CpuTopologyText
+        {
+            get
+            {
+                return "ソケット: " + CpuSocketCountText + "    コア: " + CpuCoreCountText +
+                    "    論理プロセッサ数: " + CpuLogicalProcessorCountText;
+            }
+        }
+
+        private static string FormatCpuCount(int? count)
+        {
+            return count.HasValue && count.Value > 0 ? count.Value.ToString(CultureInfo.InvariantCulture) : "取得不可";
         }
 
         public string CpuBaseSpeedText
@@ -63,6 +85,7 @@ namespace Mknk.LaptopFanChecker
         public DateTime Timestamp { get; set; }
         public double? TemperatureC { get; set; }
         public double? CpuLoadPercent { get; set; }
+        public double? CpuClockGHz { get; set; }
         public double? FanRpm { get; set; }
         public double? FanControlPercent { get; set; }
         public bool FanSensorAvailable { get; set; }
@@ -96,6 +119,7 @@ namespace Mknk.LaptopFanChecker
         public TestPhase Phase { get; set; }
         public double? TemperatureC { get; set; }
         public double? CpuLoadPercent { get; set; }
+        public double? CpuClockGHz { get; set; }
         public double? FanRpm { get; set; }
         public double? FanControlPercent { get; set; }
         public bool FanSensorAvailable { get; set; }

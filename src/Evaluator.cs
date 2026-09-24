@@ -27,7 +27,8 @@ namespace Mknk.LaptopFanChecker
             if (result.MaximumTemperatureC.HasValue && result.CooldownEndTemperatureC.HasValue)
                 result.CooldownDropC = result.MaximumTemperatureC.Value - result.CooldownEndTemperatureC.Value;
 
-            bool fanSensorAvailable = samples.Any(s => s.FanSensorAvailable);
+            bool fanSensorAvailable = load.Count >= 5 && load.All(s => s.FanSensorAvailable && s.FanRpm.HasValue && s.FanRpm.Value >= 0.0) &&
+                samples.Where(s => s.FanSensorAvailable).Select(s => s.FanSensorName).Distinct().Count() <= 1;
             result.DirectRpmAssessment = fanSensorAvailable;
             result.BaselineFanRpm = Median(LastValues(idle, s => s.FanRpm, 10));
             result.MaximumFanRpm = Maximum(load, s => s.FanRpm);
@@ -35,6 +36,13 @@ namespace Mknk.LaptopFanChecker
                 result.FanIncreaseRpm = result.MaximumFanRpm.Value - result.BaselineFanRpm.Value;
 
             result.LoadEndTemperatureSlopePerSecond = EndSlope(load, 20);
+
+            if (finalPhase == TestPhase.SensorLost)
+            {
+                SetUnknown(result, "検査停止：温度センサーを取得できません", "安全にCPU温度を監視できなくなったため、負荷を停止しました。");
+                result.RecommendedAction = "センサー接続を再検出し、CPU温度を確認してから再検査してください。";
+                return result;
+            }
 
             if (finalPhase == TestPhase.Aborted)
             {
@@ -61,7 +69,7 @@ namespace Mknk.LaptopFanChecker
                 result.Level = VerdictLevel.Suspect;
                 result.Verdict = "要点検：高温保護停止";
                 result.Basis = String.Format("CPU温度が保護停止値 {0:0}℃ に到達しました（最高 {1:0.0}℃）。", safetyCutoffC, maxTemp);
-                result.Limitation = "アプリは負荷を停止しましたが、CPU固有のTjMaxやメーカー診断を代替しません。";
+                result.Limitation = "設定した保護値による停止であり、故障を確定するものではありません。CPU固有のTjMaxやメーカー仕様を確認してください。";
                 result.RecommendedAction = "冷却後に、ファン接続・埃詰まり・ヒートシンク密着・グリス・排気を点検してください。";
                 return result;
             }
@@ -81,7 +89,7 @@ namespace Mknk.LaptopFanChecker
                 double baselineFan = result.BaselineFanRpm.HasValue ? result.BaselineFanRpm.Value : 0.0;
                 double maxFan = result.MaximumFanRpm.HasValue ? result.MaximumFanRpm.Value : 0.0;
                 double fanIncrease = maxFan - baselineFan;
-                bool rotating = maxFan >= 300.0;
+                bool rotating = maxFan > 0.0;
                 bool responded = (maxFan >= 500.0 && fanIncrease >= 200.0) || (baselineFan < 100.0 && maxFan >= 600.0);
                 bool coolingResponse = coolDrop >= 3.0;
                 bool stabilized = slope <= 0.12 && maxTemp <= safetyCutoffC - 3.0;
@@ -98,7 +106,7 @@ namespace Mknk.LaptopFanChecker
                     return result;
                 }
 
-                if (!rotating && (maxTemp >= 80.0 || tempRise >= 10.0))
+                if (!rotating && maxTemp >= 80.0)
                 {
                     result.Level = VerdictLevel.Suspect;
                     result.Verdict = "異常疑い：負荷中の回転を確認できず";
@@ -115,7 +123,7 @@ namespace Mknk.LaptopFanChecker
                 result.Basis = String.Format(
                     "回転数センサーはありますが、明確な増速または冷却低下を確認できませんでした（最大 {0:0} RPM、温度低下 {1:0.0}℃）。",
                     maxFan, coolDrop);
-                result.Limitation = "静音ファンカーブ、低負荷、すでに高回転だった場合にも同じ結果になります。";
+                result.Limitation = "静音停止、ファンレス、水冷、低負荷、すでに高回転だった場合にも同じ結果になります。冷却構成を確認してください。";
                 result.RecommendedAction = "精密テストを実行し、排気の変化とメーカー診断を照合してください。";
                 return result;
             }
@@ -143,7 +151,7 @@ namespace Mknk.LaptopFanChecker
                     ? "正常傾向：冷却挙動＋排気確認（間接判定）"
                     : "正常傾向：冷却挙動を確認（間接判定）";
                 result.Basis = String.Format(
-                    "RPM非公開機種ですが、最高 {0:0.0}℃、負荷終盤 {1:+0.00;-0.00;0.00}℃/秒、冷却工程で {2:0.0}℃低下しました。",
+                    "CPUファンのRPMを特定できませんが、最高 {0:0.0}℃、負荷終盤 {1:+0.00;-0.00;0.00}℃/秒、冷却工程で {2:0.0}℃低下しました。",
                     maxTemp, slope, coolDrop);
                 result.Limitation = "温度挙動からの推定であり、ファン回転・軸受・異音を直接証明するものではありません。";
                 result.RecommendedAction = "排気が増えることと異音がないことを人が確認し、レポートに残してください。";
@@ -151,11 +159,11 @@ namespace Mknk.LaptopFanChecker
             }
 
             result.Level = VerdictLevel.Caution;
-            result.Verdict = "判定保留：RPM非公開・温度差不足";
+            result.Verdict = "判定保留：RPM未特定・温度差不足";
             result.Basis = String.Format(
                 "RPMを取得できず、冷却工程の温度低下は {0:0.0}℃でした。短い測定では正常・異常を分けられません。",
                 coolDrop);
-            result.Limitation = "ノートPCではECがRPMをOSへ公開しないことが多く、ソフトウェアだけでは限界があります。";
+            result.Limitation = "EC・BIOS・マザーボードがCPUファンのRPMを公開しない構成では、ソフトウェアだけでは限界があります。";
             result.RecommendedAction = "精密テストを行い、排気・作動音・BIOS診断を併用してください。";
             return result;
         }

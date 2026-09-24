@@ -1,12 +1,14 @@
 param(
     [switch]$Run,
-    [switch]$Demo
+    [switch]$Demo,
+    [string]$OutputDirectory = 'runtime'
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $runtimeDir = Join-Path $projectRoot 'runtime'
-$outputPath = Join-Path $runtimeDir 'mknkLaptopFanChecker.exe'
+$outputDir = [System.IO.Path]::GetFullPath((Join-Path $projectRoot $OutputDirectory))
+$outputPath = Join-Path $outputDir 'mknkLaptopFanChecker.exe'
 $manifestPath = Join-Path $projectRoot 'app.manifest'
 $iconPath = Join-Path $projectRoot 'app.ico'
 $configPath = Join-Path $projectRoot 'App.config'
@@ -33,7 +35,6 @@ $arguments = @(
     '/target:winexe',
     '/platform:anycpu',
     '/optimize+',
-    '/deterministic+',
     '/warn:4',
     '/warnaserror+',
     '/codepage:65001',
@@ -49,12 +50,24 @@ $arguments = @(
     "/reference:$libraryPath"
 ) + $sources
 
+# The compiler bundled with .NET Framework predates deterministic builds.
+$compilerHelp = & $compiler /help | Out-String
+if ($compilerHelp -match '/deterministic') {
+    $arguments = @('/deterministic+') + $arguments
+}
+
 Write-Host 'Building mknkLaptopFanChecker...'
+New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 & $compiler $arguments
 if ($LASTEXITCODE -ne 0) {
     throw "Build failed with exit code $LASTEXITCODE"
 }
 Copy-Item $configPath ($outputPath + '.config') -Force
+if ($outputDir -ne $runtimeDir) {
+    Get-ChildItem -LiteralPath $runtimeDir -File |
+        Where-Object { $_.Name -ne 'mknkLaptopFanChecker.exe' -and $_.Name -ne 'mknkLaptopFanChecker.exe.config' } |
+        Copy-Item -Destination $outputDir -Force
+}
 Write-Host "Built: $outputPath"
 
 if ($Run) {

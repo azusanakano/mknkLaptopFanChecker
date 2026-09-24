@@ -18,16 +18,6 @@ namespace Mknk.LaptopFanChecker
         void SetTestPhase(TestPhase phase);
     }
 
-    internal sealed class SensorRecord
-    {
-        public string HardwareType;
-        public string HardwareName;
-        public string Path;
-        public string SensorName;
-        public string SensorType;
-        public double? Value;
-    }
-
     public sealed class LibreHardwareSensorReader : ISensorReader
     {
         private const int ProcessorInformationLevel = 11;
@@ -57,6 +47,7 @@ namespace Mknk.LaptopFanChecker
         private string _openError;
         private string _lastTemperatureFailureReason;
         private List<SensorRecord> _lastRecords;
+        private readonly CoolingSensorSelection _coolingSensors = new CoolingSensorSelection();
 
         public SystemProfile Profile { get; private set; }
 
@@ -114,10 +105,10 @@ namespace Mknk.LaptopFanChecker
                 }
                 _lastRecords = records;
 
-                SelectTemperature(records, snapshot);
-                SelectCpuLoad(records, snapshot);
-                SelectFan(records, snapshot);
-                SelectFanControl(records, snapshot);
+                CoolingSensorSelection.SelectTemperature(records, snapshot);
+                CoolingSensorSelection.SelectCpuLoad(records, snapshot);
+                snapshot.CpuClockGHz = CpuClockMetrics.SelectGHz(records);
+                _coolingSensors.SelectFan(records, snapshot);
 
                 if (!snapshot.TemperatureC.HasValue)
                 {
@@ -163,11 +154,13 @@ namespace Mknk.LaptopFanChecker
             lock (_sync)
             {
                 StringBuilder builder = new StringBuilder();
-                builder.AppendLine("ネコシステム社 ノートPC CPUファンチェッカー - センサー一覧");
+                builder.AppendLine("ネコシステム社 CPUファンチェッカー - センサー一覧");
                 builder.AppendLine("取得日時: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                 builder.AppendLine("PC: " + Profile.DisplayName);
                 builder.AppendLine("CPU: " + Profile.CpuName);
+                builder.AppendLine("CPU構成（Windows）: " + Profile.CpuTopologyText);
                 builder.AppendLine("CPU基本速度（Windows ProcessorInformation）: " + Profile.CpuBaseSpeedText);
+                builder.AppendLine("CPU実働速度（コア平均）: " + CpuClockMetrics.FormatGHz(CpuClockMetrics.SelectGHz(_lastRecords)));
                 Version installedDriver = SensorDriverManager.InstalledVersion();
                 builder.AppendLine("管理者権限: " + (SensorDriverManager.IsProcessElevated() ? "あり" : "なし"));
                 builder.AppendLine("PawnIO必要版: " + SensorDriverManager.MinimumSupportedVersion);
@@ -211,6 +204,7 @@ namespace Mknk.LaptopFanChecker
                 _opened = false;
                 _openError = String.Empty;
                 _lastRecords.Clear();
+                _coolingSensors.Reset();
                 _lastTemperatureFailureReason = String.Empty;
 
                 Version installedDriver = SensorDriverManager.InstalledVersion();
@@ -266,6 +260,8 @@ namespace Mknk.LaptopFanChecker
                 records.Add(new SensorRecord
                 {
                     HardwareType = hardware.HardwareType.ToString(),
+                    HardwareIdentifier = hardware.Identifier.ToString(),
+                    Identifier = sensor.Identifier.ToString(),
                     HardwareName = hardware.Name,
                     Path = path,
                     SensorName = sensor.Name,
@@ -276,105 +272,6 @@ namespace Mknk.LaptopFanChecker
 
             foreach (IHardware subHardware in hardware.SubHardware)
                 CollectHardware(subHardware, path + " > " + subHardware.Name, records);
-        }
-
-        private static void SelectTemperature(List<SensorRecord> records, SensorSnapshot snapshot)
-        {
-            List<SensorRecord> candidates = records.Where(r =>
-                    EqualsIgnoreCase(r.SensorType, "Temperature") &&
-                    EqualsIgnoreCase(r.HardwareType, "Cpu") &&
-                    r.Value.HasValue && r.Value.Value > 0.0 && r.Value.Value < 126.0)
-                .ToList();
-
-            if (candidates.Count == 0)
-                return;
-
-            SensorRecord selected = candidates.OrderByDescending(TemperatureScore)
-                .ThenByDescending(r => r.Value.Value)
-                .First();
-            snapshot.TemperatureC = selected.Value;
-            snapshot.TemperatureSensorName = selected.SensorName;
-            snapshot.TemperatureIsCpuDirect = true;
-        }
-
-        private static int TemperatureScore(SensorRecord record)
-        {
-            string name = record.SensorName.ToLowerInvariant();
-            int score = 0;
-            if (name.Contains("package")) score += 100;
-            if (name.Contains("tctl") || name.Contains("tdie")) score += 95;
-            if (name.Contains("core max")) score += 90;
-            if (name.Contains("cpu")) score += 50;
-            if (name.Contains("distance")) score -= 200;
-            return score;
-        }
-
-        private static void SelectCpuLoad(List<SensorRecord> records, SensorSnapshot snapshot)
-        {
-            List<SensorRecord> candidates = records.Where(r =>
-                    EqualsIgnoreCase(r.SensorType, "Load") &&
-                    EqualsIgnoreCase(r.HardwareType, "Cpu") &&
-                    r.Value.HasValue && r.Value.Value >= 0.0 && r.Value.Value <= 100.5)
-                .ToList();
-            if (candidates.Count == 0)
-                return;
-
-            SensorRecord total = candidates.FirstOrDefault(r =>
-                r.SensorName.IndexOf("total", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                r.SensorName.IndexOf("total cpu", StringComparison.OrdinalIgnoreCase) >= 0);
-            snapshot.CpuLoadPercent = total != null
-                ? total.Value
-                : (double?)candidates.Average(r => r.Value.Value);
-        }
-
-        private static void SelectFan(List<SensorRecord> records, SensorSnapshot snapshot)
-        {
-            List<SensorRecord> candidates = records.Where(r =>
-                    EqualsIgnoreCase(r.SensorType, "Fan") &&
-                    r.Value.HasValue && r.Value.Value >= 0.0 && r.Value.Value <= 30000.0 &&
-                    !LooksLikeGpu(r))
-                .ToList();
-
-            if (candidates.Count == 0)
-                return;
-
-            int bestScore = candidates.Max(FanScore);
-            SensorRecord selected = candidates.Where(r => FanScore(r) == bestScore)
-                .OrderByDescending(r => r.Value.Value)
-                .First();
-            snapshot.FanSensorAvailable = true;
-            snapshot.FanRpm = selected.Value;
-            snapshot.FanSensorName = selected.SensorName + " / " + selected.HardwareName;
-        }
-
-        private static int FanScore(SensorRecord record)
-        {
-            string all = (record.SensorName + " " + record.HardwareName + " " + record.Path).ToLowerInvariant();
-            int score = 10;
-            if (all.Contains("cpu")) score += 200;
-            if (all.Contains("processor")) score += 120;
-            if (all.Contains("ec") || all.Contains("embedded")) score += 40;
-            if (EqualsIgnoreCase(record.HardwareType, "SuperIO")) score += 30;
-            if (all.Contains("pump")) score -= 80;
-            return score;
-        }
-
-        private static bool LooksLikeGpu(SensorRecord record)
-        {
-            string all = (record.HardwareType + " " + record.HardwareName + " " + record.Path + " " + record.SensorName).ToLowerInvariant();
-            return all.Contains("gpu") || all.Contains("nvidia") || all.Contains("radeon");
-        }
-
-        private static void SelectFanControl(List<SensorRecord> records, SensorSnapshot snapshot)
-        {
-            List<SensorRecord> controls = records.Where(r =>
-                    EqualsIgnoreCase(r.SensorType, "Control") &&
-                    r.Value.HasValue && r.Value.Value >= 0.0 && r.Value.Value <= 100.5 &&
-                    !LooksLikeGpu(r) && FanScore(r) >= 0)
-                .OrderByDescending(FanScore)
-                .ToList();
-            if (controls.Count > 0)
-                snapshot.FanControlPercent = controls[0].Value;
         }
 
         private static bool EqualsIgnoreCase(string left, string right)
@@ -420,6 +317,7 @@ namespace Mknk.LaptopFanChecker
             catch { }
 
             profile.CpuBaseSpeedMHz = ReadWindowsPerformanceBaseSpeed();
+            CpuTopologyReader.Populate(profile);
 
             try
             {
@@ -543,9 +441,12 @@ namespace Mknk.LaptopFanChecker
             Profile = new SystemProfile
             {
                 Manufacturer = "MKNK Demo",
-                Model = "Laptop Fan Test Model",
-                CpuName = "Demo Mobile CPU 8-Core",
+                Model = "PC Fan Test Model",
+                CpuName = "Demo CPU 8-Core",
                 CpuBaseSpeedMHz = 3200.0,
+                CpuSocketCount = 1,
+                CpuCoreCount = 8,
+                CpuLogicalProcessorCount = 16,
                 OperatingSystem = "Windows 11（デモ）"
             };
             _phase = TestPhase.Monitoring;
@@ -589,6 +490,7 @@ namespace Mknk.LaptopFanChecker
                 Timestamp = DateTime.Now,
                 TemperatureC = _temperature + jitter,
                 CpuLoadPercent = Math.Max(0.0, Math.Min(100.0, load + jitter * 4.0)),
+                CpuClockGHz = (_phase == TestPhase.Load ? 3.8 : 1.2) + jitter,
                 FanRpm = Math.Max(0.0, _fan + jitter * 35.0),
                 FanControlPercent = targetFan <= 0.0 ? 0.0 : Math.Min(100.0, targetFan / 40.0),
                 FanSensorAvailable = true,
@@ -601,7 +503,7 @@ namespace Mknk.LaptopFanChecker
 
         public string GetRawSensorReport()
         {
-            return "デモモード\r\nCPU > Temperature | CPU Package = simulated\r\nEC > Fan | CPU Fan = simulated\r\nCPU > Load | CPU Total = simulated\r\n";
+            return "デモモード\r\nCPU > Temperature | CPU Package = simulated\r\nEC > Fan | CPU Fan = simulated\r\nCPU > Load | CPU Total = simulated\r\nCPU > Clock | CPU Core = simulated (MHz)\r\n";
         }
 
         public void SetTestPhase(TestPhase phase)

@@ -8,8 +8,14 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="SmartBoostTests.cs" />
+    <Compile Include="CoolingCompatibilityTests.cs" />
+    <Compile Include="..\src\CoolingSensorSelection.cs" Link="CoolingSensorSelection.cs" />
+    <Compile Include="..\src\SmartBoostPolicy.cs" Link="SmartBoostPolicy.cs" />
     <Compile Include="..\src\AppInfo.cs" Link="AppInfo.cs" />
     <Compile Include="..\src\Models.cs" Link="Models.cs" />
+    <Compile Include="..\src\CpuClockMetrics.cs" Link="CpuClockMetrics.cs" />
+    <Compile Include="..\src\CpuTopologyReader.cs" Link="CpuTopologyReader.cs" />
     <Compile Include="..\src\Evaluator.cs" Link="Evaluator.cs" />
     <Compile Include="..\src\HeatMonitoring.cs" Link="HeatMonitoring.cs" />
     <Compile Include="..\src\ReportWriter.cs" Link="ReportWriter.cs" />

@@ -9,7 +9,7 @@ using System.Windows.Forms;
 
 namespace Mknk.LaptopFanChecker
 {
-    public sealed class MainForm : Form
+    public sealed partial class MainForm : Form
     {
         private readonly ISensorReader _reader;
         private readonly bool _startupMonitorMode;
@@ -34,12 +34,16 @@ namespace Mknk.LaptopFanChecker
         private bool _allowExit;
         private bool _initializingStartup;
         private bool _shownTrayHint;
+        private bool _testUsesDirectTemperature;
+        private bool _startingTest;
 
         private Label _deviceLabel;
         private Label _sourceLabel;
         private Label _tempValue;
         private Label _tempDetail;
         private Label _loadValue;
+        private Label _clockValue;
+        private Label _clockDetail;
         private Label _fanValue;
         private Label _fanDetail;
         private Label _monitorValue;
@@ -122,7 +126,7 @@ namespace Mknk.LaptopFanChecker
             };
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 72));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 70));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 130));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
@@ -182,7 +186,7 @@ namespace Mknk.LaptopFanChecker
             Label mode = new Label
             {
                 AutoSize = true,
-                Text = _demoMode ? "DEMO MODE" : "LAPTOP ONLY",
+                Text = _demoMode ? "DEMO MODE" : "WINDOWS PC",
                 Font = new Font("Segoe UI", 9F, FontStyle.Bold),
                 ForeColor = _demoMode ? Amber : Accent,
                 Anchor = AnchorStyles.Top | AnchorStyles.Right,
@@ -214,6 +218,7 @@ namespace Mknk.LaptopFanChecker
         private Control BuildDeviceBar()
         {
             Panel panel = new Panel { Dock = DockStyle.Fill, BackColor = PanelBackground, Padding = new Padding(12, 4, 12, 4) };
+            Panel deviceRow = new Panel { Dock = DockStyle.Fill };
             _deviceLabel = new Label
             {
                 Dock = DockStyle.Fill,
@@ -230,8 +235,20 @@ namespace Mknk.LaptopFanChecker
                 TextAlign = ContentAlignment.MiddleRight,
                 Text = "センサー確認中"
             };
-            panel.Controls.Add(_deviceLabel);
-            panel.Controls.Add(_sourceLabel);
+            deviceRow.Controls.Add(_deviceLabel);
+            deviceRow.Controls.Add(_sourceLabel);
+            Label topology = new Label
+            {
+                Name = "cpuTopologyLabel",
+                Dock = DockStyle.Bottom,
+                Height = 24,
+                Text = _reader.Profile.CpuTopologyText,
+                ForeColor = TextPrimary,
+                TextAlign = ContentAlignment.MiddleLeft,
+                AutoEllipsis = true
+            };
+            panel.Controls.Add(deviceRow);
+            panel.Controls.Add(topology);
             return panel;
         }
 
@@ -240,18 +257,19 @@ namespace Mknk.LaptopFanChecker
             TableLayoutPanel table = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 4,
+                ColumnCount = 5,
                 Padding = new Padding(0, 8, 0, 8)
             };
-            for (int i = 0; i < 4; i++)
-                table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
+            for (int i = 0; i < 5; i++)
+                table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
 
             table.Controls.Add(BuildMetricCard("CPU 温度", out _tempValue, out _tempDetail, Accent), 0, 0);
             Label loadDetail;
             table.Controls.Add(BuildMetricCard("CPU 負荷", out _loadValue, out loadDetail, Color.FromArgb(255, 174, 66)), 1, 0);
             loadDetail.Text = "リアルタイム";
-            table.Controls.Add(BuildMetricCard("CPU ファン", out _fanValue, out _fanDetail, Color.FromArgb(217, 111, 255)), 2, 0);
-            table.Controls.Add(BuildMetricCard("異常発熱監視", out _monitorValue, out _monitorDetail, Green), 3, 0);
+            table.Controls.Add(BuildMetricCard("CPU 実働速度", out _clockValue, out _clockDetail, Color.FromArgb(110, 220, 160)), 2, 0);
+            table.Controls.Add(BuildMetricCard("CPU ファン", out _fanValue, out _fanDetail, Color.FromArgb(217, 111, 255)), 3, 0);
+            table.Controls.Add(BuildMetricCard("異常発熱監視", out _monitorValue, out _monitorDetail, Green), 4, 0);
             return table;
         }
 
@@ -329,7 +347,7 @@ namespace Mknk.LaptopFanChecker
             {
                 Dock = DockStyle.Fill,
                 ForeColor = TextSecondary,
-                Text = "RPM非公開機種では、温度と冷却勾配による間接判定になります。",
+                Text = "CPUファンのRPMが未特定の場合は、温度から間接判定します。",
                 AutoEllipsis = true
             };
             _resultPanel.Controls.Add(_resultLimit);
@@ -357,6 +375,7 @@ namespace Mknk.LaptopFanChecker
             flow.Controls.Add(BuildTestGroup());
             flow.Controls.Add(BuildObservationGroup());
             flow.Controls.Add(BuildMonitoringGroup());
+            flow.Controls.Add(BuildSmartBoostGroup());
             flow.Controls.Add(BuildToolsGroup());
             return scroll;
         }
@@ -414,7 +433,7 @@ namespace Mknk.LaptopFanChecker
                 UpdateMonitorCard();
             };
 
-            Label alertLabel = SmallLabel("危険温度の通知", 14, 64);
+            Label alertLabel = SmallLabel("上限温度の通知", 14, 64);
             _heatAlertThreshold = new NumericUpDown
             {
                 Left = 210,
@@ -574,6 +593,7 @@ namespace Mknk.LaptopFanChecker
 
         private void TimerTick(object sender, EventArgs e)
         {
+            UpdateSmartBoost();
             SensorSnapshot snapshot;
             try
             {
@@ -581,10 +601,25 @@ namespace Mknk.LaptopFanChecker
             }
             catch (Exception ex)
             {
+                StopForSensorLoss();
                 _statusLabel.Text = "センサー取得エラー: " + ex.Message;
                 return;
             }
             _lastSnapshot = snapshot;
+            if (snapshot == null)
+            {
+                StopForSensorLoss();
+                _statusLabel.Text = "センサー情報を取得できません。";
+                return;
+            }
+            if (IsTestActive() && (!snapshot.TemperatureC.HasValue || Double.IsNaN(snapshot.TemperatureC.Value) ||
+                Double.IsInfinity(snapshot.TemperatureC.Value) || snapshot.TemperatureC.Value <= 0 ||
+                (_testUsesDirectTemperature && !snapshot.TemperatureIsCpuDirect)))
+            {
+                StopForSensorLoss();
+                UpdateMetrics(snapshot);
+                return;
+            }
             UpdateMetrics(snapshot);
 
             bool active = IsTestActive();
@@ -636,6 +671,23 @@ namespace Mknk.LaptopFanChecker
 
         private void StartTestClicked(object sender, EventArgs e)
         {
+            if (_startingTest) return;
+            _startingTest = true;
+            try { PrepareAndStartTest(); }
+            finally
+            {
+                _startingTest = false;
+                _boostPolicy.ShouldRun(DateTime.UtcNow, null, _settings.SmartBoostEnabled, true);
+            }
+        }
+
+        private void PrepareAndStartTest()
+        {
+            if (BoostIsRunning)
+            {
+                _statusLabel.Text = "メモリ整理の完了後にテストを開始できます。";
+                return;
+            }
             if (IsTestActive())
                 return;
             if (_lastSnapshot == null || !_lastSnapshot.TemperatureC.HasValue)
@@ -644,14 +696,16 @@ namespace Mknk.LaptopFanChecker
                 return;
             }
 
-            if (!_lastSnapshot.TemperatureIsCpuDirect)
+            bool directTemperatureConfirmed = _lastSnapshot.TemperatureIsCpuDirect;
+            if (!directTemperatureConfirmed)
             {
                 DialogResult acpi = MessageBox.Show("CPU直結温度ではなくACPI温度を使用しています。保護停止の精度が下がります。\r\nそれでも短時間テストを実行しますか？", "間接温度センサー", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
                 if (acpi != DialogResult.Yes)
                     return;
             }
 
-            if (SystemInformation.PowerStatus.PowerLineStatus != PowerLineStatus.Online)
+            if ((SystemInformation.PowerStatus.BatteryChargeStatus & BatteryChargeStatus.NoSystemBattery) == 0 &&
+                SystemInformation.PowerStatus.PowerLineStatus == PowerLineStatus.Offline)
             {
                 DialogResult battery = MessageBox.Show("ACアダプターが接続されていません。バッテリー時は性能制限で判定が不正確になります。\r\n続行しますか？", "AC接続を推奨", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
                 if (battery != DialogResult.Yes)
@@ -659,10 +713,19 @@ namespace Mknk.LaptopFanChecker
             }
 
             DialogResult prepared = MessageBox.Show(
-                "開始前の確認\r\n\r\n・硬く平らな机に置く\r\n・吸気口と排気口を塞がない\r\n・HWiNFO等の他のセンサー監視ソフトを閉じる\r\n・異臭、煙、膨張バッテリーがあるPCでは実行しない\r\n\r\nCPUへ設定した負荷を掛けます。続行しますか？",
+                "開始前の確認\r\n\r\n・機種に合った向きで安定した場所へ設置する\r\n・吸気口と排気口を塞がない\r\n・HWiNFO等の他のセンサー監視ソフトを閉じる\r\n・異臭、煙、膨張バッテリーがあるPCでは実行しない\r\n\r\nCPUへ設定した負荷を掛けます。続行しますか？",
                 "安全確認", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
             if (prepared != DialogResult.Yes)
                 return;
+
+            // Modal confirmations keep the sensor timer running. Recheck its latest result.
+            if (_lastSnapshot == null || !_lastSnapshot.TemperatureC.HasValue ||
+                Double.IsNaN(_lastSnapshot.TemperatureC.Value) || Double.IsInfinity(_lastSnapshot.TemperatureC.Value) ||
+                _lastSnapshot.TemperatureC.Value <= 0 || (directTemperatureConfirmed && !_lastSnapshot.TemperatureIsCpuDirect))
+            {
+                _statusLabel.Text = "温度センサーが変化したため開始できません。再検出後にやり直してください。";
+                return;
+            }
 
             _durations = SelectedDurations();
             _testSamples.Clear();
@@ -673,6 +736,7 @@ namespace Mknk.LaptopFanChecker
             _testStarted = DateTime.Now;
             _phaseStarted = _testStarted;
             _phase = TestPhase.Idle;
+            _testUsesDirectTemperature = _lastSnapshot.TemperatureIsCpuDirect;
             _reader.SetTestPhase(_phase);
             _startButton.Enabled = false;
             _stopButton.Enabled = true;
@@ -692,7 +756,7 @@ namespace Mknk.LaptopFanChecker
                 _phase = TestPhase.Load;
                 _phaseStarted = DateTime.Now;
                 _reader.SetTestPhase(_phase);
-                _stress.Start(SelectedLoadPercent());
+                _stress.Start(SelectedLoadPercent(), _durations.LoadSeconds);
                 SetResultDisplay(VerdictLevel.Unknown, "CPU負荷中", "温度上昇とファン増速を測定しています。", "設定温度へ達すると負荷を即時停止します。");
             }
             else if (_phase == TestPhase.Load && phaseSeconds >= _durations.LoadSeconds)
@@ -742,17 +806,41 @@ namespace Mknk.LaptopFanChecker
             MessageBox.Show(String.Format("CPU温度が {0:0.0}℃ に達したため、負荷を自動停止しました。\r\nPCが冷えるまで待ち、冷却系を点検してください。", temperature), "高温保護停止", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
 
+        internal void StopForSensorLoss()
+        {
+            if (!IsTestActive()) return;
+            _stress.Stop();
+            _phase = TestPhase.SensorLost;
+            try { _reader.SetTestPhase(_phase); } catch { }
+            RestoreTestControls();
+            Reevaluate();
+            if (_evaluation == null)
+                SetResultDisplay(VerdictLevel.Unknown, "検査停止：温度取得不能", "安全に温度を監視できないため、負荷を停止しました。", "センサーを再検出してから再検査してください。");
+            _reportButton.Enabled = _testSamples.Count > 0;
+            _heatHistory.Clear();
+            UpdateTestProgress();
+        }
+
         private void Reevaluate()
         {
             if (_testSamples.Count == 0)
                 return;
             _evaluation = FanTestEvaluator.Evaluate(_testSamples, (double)_safetyCutoff.Value, _airflowCheck.Checked, _noiseCheck.Checked, _phase);
+            if (_stress.WorkerCount > 0 && _reader.Profile.CpuLogicalProcessorCount.HasValue && _stress.WorkerCount < _reader.Profile.CpuLogicalProcessorCount.Value)
+            {
+                _evaluation.Limitation += String.Format(" 負荷対象は {0}/{1} 論理プロセッサで、CPU全体の検査ではありません。", _stress.WorkerCount, _reader.Profile.CpuLogicalProcessorCount.Value);
+                if (_evaluation.Level == VerdictLevel.Normal)
+                {
+                    _evaluation.Level = VerdictLevel.Caution;
+                    _evaluation.Verdict = "部分検査：負荷対象が一部CPUのみ";
+                }
+            }
             SetResultDisplay(_evaluation.Level, _evaluation.Verdict, _evaluation.Basis, _evaluation.Limitation + "  推奨: " + _evaluation.RecommendedAction);
         }
 
         private void ObservationChanged(object sender, EventArgs e)
         {
-            if (_phase == TestPhase.Complete || _phase == TestPhase.Aborted || _phase == TestPhase.SafetyStop)
+            if (_phase == TestPhase.Complete || _phase == TestPhase.Aborted || _phase == TestPhase.SafetyStop || _phase == TestPhase.SensorLost)
                 Reevaluate();
         }
 
@@ -837,7 +925,9 @@ namespace Mknk.LaptopFanChecker
                 snapshot.TemperatureC.Value >= _settings.SustainedAlertC ? Amber : Accent;
 
             _loadValue.Text = snapshot.CpuLoadPercent.HasValue ? snapshot.CpuLoadPercent.Value.ToString("0") + " %" : "—";
-            _fanValue.Text = snapshot.FanRpm.HasValue ? snapshot.FanRpm.Value.ToString("0") + " RPM" : "非公開";
+            _clockValue.Text = CpuClockMetrics.FormatGHz(snapshot.CpuClockGHz);
+            _clockDetail.Text = snapshot.CpuClockGHz.HasValue ? "コア平均 / リアルタイム" : "動作クロック未検出";
+            _fanValue.Text = snapshot.FanRpm.HasValue ? snapshot.FanRpm.Value.ToString("0") + " RPM" : "未特定";
             _fanDetail.Text = snapshot.FanSensorAvailable ? snapshot.FanSensorName : "温度挙動で間接判定";
             _sourceLabel.Text = snapshot.SensorSource;
             UpdateMonitorCard();
@@ -859,7 +949,7 @@ namespace Mknk.LaptopFanChecker
                 _monitorValue.Text = _settings.HeatMonitoringEnabled ? "監視中" : "停止中";
                 _monitorValue.ForeColor = _settings.HeatMonitoringEnabled ? Green : TextSecondary;
                 _monitorDetail.Text = _settings.HeatMonitoringEnabled
-                    ? String.Format("危険 {0:0}℃ / 持続 {1:0}℃", _settings.AbsoluteAlertC, _settings.SustainedAlertC)
+                    ? String.Format("上限 {0:0}℃ / 持続 {1:0}℃", _settings.AbsoluteAlertC, _settings.SustainedAlertC)
                     : "通知・記録は行いません";
             }
         }
@@ -871,6 +961,7 @@ namespace Mknk.LaptopFanChecker
                 if (_phase == TestPhase.Complete) { _phaseLabel.Text = "状態：完了"; _countdownLabel.Text = "完了"; _progress.Value = 100; }
                 else if (_phase == TestPhase.SafetyStop) { _phaseLabel.Text = "状態：高温停止"; _countdownLabel.Text = "停止"; }
                 else if (_phase == TestPhase.Aborted) { _phaseLabel.Text = "状態：中断"; _countdownLabel.Text = "中断"; }
+                else if (_phase == TestPhase.SensorLost) { _phaseLabel.Text = "状態：温度取得不能で停止"; _countdownLabel.Text = "停止"; }
                 return;
             }
             int totalElapsed = (int)Math.Max(0, (DateTime.Now - _testStarted).TotalSeconds);
@@ -921,6 +1012,7 @@ namespace Mknk.LaptopFanChecker
                 Phase = phase,
                 TemperatureC = snapshot.TemperatureC,
                 CpuLoadPercent = snapshot.CpuLoadPercent,
+                CpuClockGHz = snapshot.CpuClockGHz,
                 FanRpm = snapshot.FanRpm,
                 FanControlPercent = snapshot.FanControlPercent,
                 FanSensorAvailable = snapshot.FanSensorAvailable,
@@ -1032,14 +1124,14 @@ namespace Mknk.LaptopFanChecker
         private void ShowSafetyGuide()
         {
             MessageBox.Show(
-                "安全な検査条件\r\n\r\n1. ACアダプターを接続し、硬く平らな机へ置く\r\n2. 吸排気口を塞がず、他の監視ソフトを終了する\r\n3. 異臭・煙・液体跡・膨張バッテリーがあれば負荷テストしない\r\n4. 高温停止後は十分に冷えるまで再実行しない\r\n5. RPM非公開なら排気と作動音を人が確認する\r\n\r\n本アプリはファン制御値、BIOS、電源設定を書き換えません。自動起動時は監視のみで、CPU負荷を掛けません。",
+                "安全な検査条件\r\n\r\n1. 安定した電源へ接続し、吸排気を確保して設置する\r\n2. 吸排気口を塞がず、他の監視ソフトを終了する\r\n3. 異臭・煙・液体跡・膨張バッテリーがあれば負荷テストしない\r\n4. 高温停止後は十分に冷えるまで再実行しない\r\n5. RPM未特定なら排気と作動音を人が確認する\r\n\r\n本アプリはファン制御値、BIOS、電源設定を書き換えません。自動起動時は監視のみで、CPU負荷を掛けません。",
                 "安全な使い方", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
-        private void SaveSettingsSafely()
+        private bool SaveSettingsSafely()
         {
-            try { _settings.Save(); }
-            catch (Exception ex) { _statusLabel.Text = "設定保存エラー: " + ex.Message; }
+            try { _settings.Save(); return true; }
+            catch (Exception ex) { _statusLabel.Text = "設定保存エラー: " + ex.Message; return false; }
         }
 
         private void ShowFromTray()
@@ -1066,6 +1158,9 @@ namespace Mknk.LaptopFanChecker
             }
             _timer.Stop();
             _stress.Dispose();
+            _closing = true;
+            if (_boostCancellation != null)
+                _boostCancellation.Cancel();
             _trayIcon.Visible = false;
             _trayIcon.Dispose();
             _applicationIcon.Dispose();

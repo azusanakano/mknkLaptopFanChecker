@@ -1,6 +1,6 @@
 # GitHub登録・公開手順
 
-このフォルダーは、ネコシステム社 ノートPC CPUファンチェッカー v1.2.1 のGitHub登録用パッケージです。
+このフォルダーは、ネコシステム社 CPUファンチェッカー v1.3.1 のGitHub登録用パッケージです。
 
 ## 新しいリポジトリへ登録
 
@@ -12,7 +12,7 @@
 git init
 git branch -M main
 git add .
-git commit -m "Initial release: NekoSystem Laptop Fan Checker v1.2.1"
+git commit -m "Initial release: NekoSystem PC Fan Checker v1.3.1"
 git remote add origin https://github.com/OWNER/REPOSITORY.git
 git push -u origin main
 ```
@@ -21,13 +21,13 @@ git push -u origin main
 
 ## リリース作成
 
-1. `v1.2.1` タグを作成してpushします。
-2. Actionsの成果物 `NekoSystem-LaptopFanChecker-*` を取得します。
-3. `NekoSystem-LaptopFanChecker-1.2.1-win64.zip` とSHA-256をGitHub Releaseへ添付します。
+1. `v1.3.1` タグを作成してpushします。
+2. Actionsの成果物 `NekoSystem-PCFanChecker-*` を取得します。
+3. `NekoSystem-PCFanChecker-1.3.1-win64.zip` とSHA-256をGitHub Releaseへ添付します。
 
 ```powershell
-git tag v1.2.1
-git push origin v1.2.1
+git tag v1.3.1
+git push origin v1.3.1
 ```
 
 ## ビルド構成

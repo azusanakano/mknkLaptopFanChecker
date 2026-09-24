@@ -4,10 +4,10 @@ using System.Reflection;
 using System.Threading;
 using System.Windows.Forms;
 
-[assembly: AssemblyTitle("ネコシステム社 ノートPC CPUファンチェッカー")]
-[assembly: AssemblyDescription("ノートPC専用 CPUファン・異常発熱検査ツール")]
+[assembly: AssemblyTitle("ネコシステム社 CPUファンチェッカー")]
+[assembly: AssemblyDescription("PC共通 CPU冷却・異常発熱・メモリ監視ツール")]
 [assembly: AssemblyCompany("ネコシステム社")]
-[assembly: AssemblyProduct("ネコシステム社 ノートPC CPUファンチェッカー")]
+[assembly: AssemblyProduct("ネコシステム社 CPUファンチェッカー")]
 [assembly: AssemblyCopyright("Copyright © 2026 ネコシステム社")]
 [assembly: AssemblyVersion(Mknk.LaptopFanChecker.AppInfo.AssemblyVersion)]
 [assembly: AssemblyFileVersion(Mknk.LaptopFanChecker.AppInfo.AssemblyVersion)]
@@ -39,8 +39,13 @@ namespace Mknk.LaptopFanChecker
 
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
+                MainForm activeForm = null;
                 Application.ThreadException += delegate(object sender, ThreadExceptionEventArgs e)
                 {
+                    if (activeForm != null)
+                    {
+                        try { activeForm.StopForSensorLoss(); } catch { }
+                    }
                     MessageBox.Show("予期しないエラーが発生しました。\r\n" + e.Exception.Message, "mknkLaptopFanChecker", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 };
 
@@ -51,7 +56,8 @@ namespace Mknk.LaptopFanChecker
                     if (!demo && !monitor)
                         SensorDriverManager.OfferInstallOrUpdate(false);
                     reader = demo ? (ISensorReader)new DemoSensorReader() : new LibreHardwareSensorReader();
-                    Application.Run(new MainForm(reader, monitor, demo));
+                    activeForm = new MainForm(reader, monitor, demo);
+                    Application.Run(activeForm);
                 }
                 catch (Exception ex)
                 {

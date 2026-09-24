@@ -1,12 +1,12 @@
 param(
-    [string]$Version = '1.2.1',
+    [string]$Version = '1.3.1',
     [string]$OutputDirectory = 'artifacts'
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $outputRoot = [System.IO.Path]::GetFullPath((Join-Path $projectRoot $OutputDirectory))
-$packageName = "NekoSystem-LaptopFanChecker-$Version-win64"
+$packageName = "NekoSystem-PCFanChecker-$Version-win64"
 $stage = Join-Path $outputRoot $packageName
 $archive = Join-Path $outputRoot ($packageName + '.zip')
 

@@ -12,6 +12,7 @@ namespace Mknk.LaptopFanChecker
         private CancellationTokenSource _cancellation;
         private List<Task> _workers;
         private static double _sink;
+        public int WorkerCount { get; private set; }
 
         public bool IsRunning
         {
@@ -22,7 +23,7 @@ namespace Mknk.LaptopFanChecker
             }
         }
 
-        public void Start(int targetPercent)
+        public void Start(int targetPercent, int maximumSeconds)
         {
             lock (_sync)
             {
@@ -31,11 +32,13 @@ namespace Mknk.LaptopFanChecker
                 _cancellation = new CancellationTokenSource();
                 _workers = new List<Task>();
                 int count = Math.Max(1, Environment.ProcessorCount);
+                WorkerCount = count;
+                int duration = Math.Max(1, Math.Min(300, maximumSeconds));
                 for (int i = 0; i < count; i++)
                 {
                     CancellationToken token = _cancellation.Token;
                     Task worker = Task.Factory.StartNew(
-                        delegate { WorkerLoop(token, duty); },
+                        delegate { WorkerLoop(token, duty, duration); },
                         token,
                         TaskCreationOptions.LongRunning,
                         TaskScheduler.Default);
@@ -71,7 +74,7 @@ namespace Mknk.LaptopFanChecker
             _workers = null;
         }
 
-        private static void WorkerLoop(CancellationToken token, int dutyPercent)
+        private static void WorkerLoop(CancellationToken token, int dutyPercent, int maximumSeconds)
         {
             try { Thread.CurrentThread.Priority = ThreadPriority.BelowNormal; }
             catch { }
@@ -81,7 +84,8 @@ namespace Mknk.LaptopFanChecker
             int restMilliseconds = Math.Max(1, cycleMilliseconds - busyMilliseconds);
             double value = 0.731;
 
-            while (!token.IsCancellationRequested)
+            Stopwatch lifetime = Stopwatch.StartNew();
+            while (!token.IsCancellationRequested && lifetime.Elapsed.TotalSeconds < maximumSeconds)
             {
                 Stopwatch watch = Stopwatch.StartNew();
                 while (watch.ElapsedMilliseconds < busyMilliseconds && !token.IsCancellationRequested)

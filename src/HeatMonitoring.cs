@@ -25,6 +25,8 @@ namespace Mknk.LaptopFanChecker
         public int RepeatSuppressionMinutes { get; set; }
         public bool HeatMonitoringEnabled { get; set; }
         public bool ShowWindowOnCriticalAlert { get; set; }
+        public bool SmartBoostEnabled { get; set; }
+        public DateTime? LastSmartBoostAttemptUtc { get; set; }
 
         public AppSettings()
         {
@@ -57,12 +59,17 @@ namespace Mknk.LaptopFanChecker
 
         public static AppSettings Load()
         {
+            return Load(SettingsPath);
+        }
+
+        internal static AppSettings Load(string path)
+        {
             AppSettings settings = new AppSettings();
             try
             {
-                if (!File.Exists(SettingsPath))
+                if (!File.Exists(path))
                     return settings;
-                foreach (string rawLine in File.ReadAllLines(SettingsPath, Encoding.UTF8))
+                foreach (string rawLine in File.ReadAllLines(path, Encoding.UTF8))
                 {
                     string line = rawLine.Trim();
                     if (line.Length == 0 || line.StartsWith("#"))
@@ -75,6 +82,7 @@ namespace Mknk.LaptopFanChecker
                     double number;
                     int integer;
                     bool flag;
+                    DateTime instant;
                     if (key == "AbsoluteAlertC" && Double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out number)) settings.AbsoluteAlertC = Clamp(number, 75.0, 105.0);
                     else if (key == "SustainedAlertC" && Double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out number)) settings.SustainedAlertC = Clamp(number, 70.0, 100.0);
                     else if (key == "SustainedSeconds" && Int32.TryParse(value, out integer)) settings.SustainedSeconds = Clamp(integer, 10, 300);
@@ -87,6 +95,8 @@ namespace Mknk.LaptopFanChecker
                     else if (key == "RepeatSuppressionMinutes" && Int32.TryParse(value, out integer)) settings.RepeatSuppressionMinutes = Clamp(integer, 1, 120);
                     else if (key == "HeatMonitoringEnabled" && Boolean.TryParse(value, out flag)) settings.HeatMonitoringEnabled = flag;
                     else if (key == "ShowWindowOnCriticalAlert" && Boolean.TryParse(value, out flag)) settings.ShowWindowOnCriticalAlert = flag;
+                    else if (key == "SmartBoostEnabled" && Boolean.TryParse(value, out flag)) settings.SmartBoostEnabled = flag;
+                    else if (key == "LastSmartBoostAttemptUtc" && DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out instant)) settings.LastSmartBoostAttemptUtc = instant.ToUniversalTime();
                 }
             }
             catch { }
@@ -95,7 +105,12 @@ namespace Mknk.LaptopFanChecker
 
         public void Save()
         {
-            Directory.CreateDirectory(SettingsDirectory);
+            Save(SettingsPath);
+        }
+
+        internal void Save(string path)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)));
             StringBuilder builder = new StringBuilder();
             builder.AppendLine("# mknkLaptopFanChecker settings");
             Append(builder, "AbsoluteAlertC", AbsoluteAlertC);
@@ -110,7 +125,10 @@ namespace Mknk.LaptopFanChecker
             Append(builder, "RepeatSuppressionMinutes", RepeatSuppressionMinutes);
             Append(builder, "HeatMonitoringEnabled", HeatMonitoringEnabled);
             Append(builder, "ShowWindowOnCriticalAlert", ShowWindowOnCriticalAlert);
-            File.WriteAllText(SettingsPath, builder.ToString(), new UTF8Encoding(false));
+            Append(builder, "SmartBoostEnabled", SmartBoostEnabled);
+            if (LastSmartBoostAttemptUtc.HasValue)
+                Append(builder, "LastSmartBoostAttemptUtc", LastSmartBoostAttemptUtc.Value.ToString("o", CultureInfo.InvariantCulture));
+            File.WriteAllText(path, builder.ToString(), new UTF8Encoding(false));
         }
 
         private static void Append(StringBuilder builder, string key, object value)
@@ -172,7 +190,7 @@ namespace Mknk.LaptopFanChecker
                     {
                         Kind = HeatAlertKind.AbsoluteHigh,
                         Timestamp = now,
-                        Title = "異常発熱：危険温度",
+                        Title = "高温通知：設定上限に到達",
                         Message = String.Format("CPU温度 {0:0.0}℃。負荷作業を止め、吸排気とファンを確認してください。", temperature),
                         TemperatureC = temperature,
                         CpuLoadPercent = current.CpuLoadPercent,
@@ -437,7 +455,7 @@ namespace Mknk.LaptopFanChecker
                 writer.WriteAttributeString("version", "1.3");
 
                 WriteTaskElement(writer, "RegistrationInfo");
-                WriteTaskValue(writer, "Description", "ネコシステム社 ノートPC CPUファンチェッカーの異常発熱監視");
+                WriteTaskValue(writer, "Description", "ネコシステム社 CPUファンチェッカーの異常発熱監視");
                 writer.WriteEndElement();
 
                 WriteTaskElement(writer, "Triggers");

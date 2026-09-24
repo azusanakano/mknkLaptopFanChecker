@@ -56,11 +56,14 @@ namespace Mknk.LaptopFanChecker
                 maxX = minX + 1.0;
             double maxFan = samples.Where(s => s.FanRpm.HasValue).Select(s => s.FanRpm.Value).DefaultIfEmpty(0.0).Max();
             double fanScale = Math.Max(2000.0, Math.Ceiling(maxFan / 1000.0) * 1000.0);
+            double maxClock = samples.Where(s => s.CpuClockGHz.HasValue).Select(s => s.CpuClockGHz.Value).DefaultIfEmpty(0.0).Max();
+            double clockScale = Math.Max(5.0, Math.Ceiling(maxClock));
 
             DrawPhaseBands(e.Graphics, plot, samples, minX, maxX);
             DrawSeries(e.Graphics, plot, samples, minX, maxX, s => s.TemperatureC, 20.0, 110.0, Color.FromArgb(71, 208, 255), 2.6f);
             DrawSeries(e.Graphics, plot, samples, minX, maxX, s => s.CpuLoadPercent, 0.0, 100.0, Color.FromArgb(255, 174, 66), 1.8f);
             DrawSeries(e.Graphics, plot, samples, minX, maxX, s => s.FanRpm, 0.0, fanScale, Color.FromArgb(217, 111, 255), 2.0f);
+            DrawSeries(e.Graphics, plot, samples, minX, maxX, s => s.CpuClockGHz, 0.0, clockScale, Color.FromArgb(110, 220, 160), 2.0f);
 
             using (Brush axisBrush = new SolidBrush(Color.FromArgb(155, 170, 190)))
             {
@@ -71,6 +74,7 @@ namespace Mknk.LaptopFanChecker
                 SizeF size = e.Graphics.MeasureString(fanText, Font);
                 e.Graphics.DrawString(fanText, Font, axisBrush, plot.Right - size.Width, plot.Bottom + 8);
                 e.Graphics.DrawString(String.Format("{0:0}秒", maxX - minX), Font, axisBrush, plot.Left, plot.Bottom + 8);
+                e.Graphics.DrawString(String.Format("速度 0–{0:0} GHz", clockScale), Font, axisBrush, plot.Left + 80, plot.Bottom + 8);
             }
         }
 
@@ -96,6 +100,7 @@ namespace Mknk.LaptopFanChecker
             DrawLegendItem(graphics, 58, 8, Color.FromArgb(71, 208, 255), "CPU温度");
             DrawLegendItem(graphics, 150, 8, Color.FromArgb(255, 174, 66), "CPU負荷");
             DrawLegendItem(graphics, 242, 8, Color.FromArgb(217, 111, 255), "ファンRPM");
+            DrawLegendItem(graphics, 350, 8, Color.FromArgb(110, 220, 160), "CPU実働速度");
         }
 
         private void DrawLegendItem(Graphics graphics, int x, int y, Color color, string text)
