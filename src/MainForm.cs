@@ -1159,6 +1159,7 @@ namespace Mknk.LaptopFanChecker
             _timer.Stop();
             _stress.Dispose();
             _closing = true;
+            _memoryPressureMonitor.Dispose();
             if (_boostCancellation != null)
                 _boostCancellation.Cancel();
             _trayIcon.Visible = false;

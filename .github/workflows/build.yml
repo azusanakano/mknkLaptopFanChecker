@@ -42,6 +42,10 @@ jobs:
         shell: pwsh
         run: dotnet run --project ./tests/EvaluatorTests.csproj -c Release
 
+      - name: Check Windows memory pressure notifications
+        shell: pwsh
+        run: ./tests/Run-MemoryPressureWindowsTests.ps1
+
       - name: Reject dynamic libc++ and libunwind dependencies
         shell: pwsh
         run: |
